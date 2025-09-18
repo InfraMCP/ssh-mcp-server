@@ -64,25 +64,32 @@ Add to your MCP client configuration (e.g., Claude Desktop, Q CLI):
 
 ### Credential Management
 
-The server uses secure credential storage - **never** plain text environment variables or configuration files.
+The server uses secure credential storage with multiple provider support:
 
-#### Current: macOS Keychain (v0.1.0)
-Credentials are securely stored in macOS Keychain with TouchID/password protection:
+#### Secure Storage Providers
+- **macOS Keychain**: TouchID/password protected storage (macOS only)
+- **Memory Cache**: Session-only credential caching
+- **Interactive Prompt**: Fallback for manual entry
 
+#### Authentication Setup
 ```bash
-# Store domain credentials (triggers TouchID/password prompt)
-security add-generic-password -s "domain-company.local" -a "your_username" -w
-# You'll be prompted to enter the password securely
+# Add domain credentials securely
+ssh-mcp-auth add domain.local
+ssh-mcp-auth add company.com
 
-# Credentials are retrieved automatically when needed (triggers TouchID)
+# Test if credentials are available
+ssh-mcp-auth test domain.local
+
+# List available providers
+ssh-mcp-auth list
 ```
 
-#### Planned: Additional Secure Providers
-- **AWS Secrets Manager**: Enterprise-grade secret management
-- **HashiCorp Vault**: Multi-cloud secret management
-- **Azure Key Vault**: Azure-native secret storage
-- **1Password/Bitwarden**: Personal password manager integration
-- **SSH Key Authentication**: Key-based authentication (no passwords)
+#### Security Features
+- **TouchID Protection**: macOS Keychain integration requires TouchID/password
+- **Memory Safety**: Passwords cleared immediately after use
+- **No Plain Text**: Never stored in logs or configuration files
+- **Session Caching**: Credentials cached in memory during session only
+- **Secure Transmission**: Sudo passwords sent via stdin (not visible in process lists)
 
 ## Available Tools
 

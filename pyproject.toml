@@ -43,7 +43,8 @@ Repository = "https://github.com/rorymcmahon/ssh-mcp-server"
 Issues = "https://github.com/rorymcmahon/ssh-mcp-server/issues"
 
 [project.scripts]
-ssh-mcp-server = "ssh_mcp_server.server:main"
+ssh-mcp-server = "ssh_mcp_server:main"
+ssh-mcp-auth = "ssh_mcp_server.auth_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -125,12 +125,22 @@ def prompt_credentials_gui(hostname: str, suggested_username: str) -> Tuple[str,
     return username, password
 
 
+def get_domain_from_hostname(hostname: str) -> str:
+    """Extract domain from FQDN."""
+    parts = hostname.split(".")
+    if len(parts) > 1:
+        # Extract domain from FQDN (e.g., server.domain.local -> domain.local)
+        return ".".join(parts[1:])
+    # Fallback: use hostname.local
+    return f"{hostname}.local"
+
+
 def get_credentials(hostname: str) -> Tuple[str, str]:
     """Get credentials for hostname with GUI prompting and caching."""
+    domain = get_domain_from_hostname(hostname)
     service = "ssh-mcp"
-    suggested_username = get_username_suggestion()
     
-    # Check for cached credentials for this specific hostname
+    # Check for cached credentials for this domain
     try:
         # Get all accounts for this service
         account_result = subprocess.run([
@@ -140,14 +150,14 @@ def get_credentials(hostname: str) -> Tuple[str, str]:
         
         if account_result.returncode == 0:
             for line in account_result.stdout.split('\n'):
-                if 'acct' in line and hostname in line:
+                if 'acct' in line and domain in line:
                     # Extract account name
                     parts = line.split('"')
                     if len(parts) >= 4:
                         account = parts[3]
                         
-                        # Account format: username@hostname
-                        if '@' in account and hostname in account:
+                        # Account format: username@domain
+                        if '@' in account and domain in account:
                             username = account.split('@')[0]
                             # Get password for this specific account
                             password = keychain_get_password(service, account)
@@ -157,10 +167,10 @@ def get_credentials(hostname: str) -> Tuple[str, str]:
         pass
     
     # No cached credentials found, prompt using GUI
-    username, password = prompt_credentials_gui(hostname, suggested_username)
+    username, password = prompt_credentials_gui(hostname, get_username_suggestion())
     
-    # Store in keychain using username@hostname format
-    account = f"{username}@{hostname}"
+    # Store in keychain using username@domain format
+    account = f"{username}@{domain}"
     try:
         keychain_set_password(service, account, password)
     except subprocess.CalledProcessError as e:
@@ -206,6 +216,7 @@ def clear_cached_credentials(hostname: str = None) -> bool:
 
 def test_credentials_available(hostname: str) -> bool:
     """Test if valid credentials are available for hostname."""
+    domain = get_domain_from_hostname(hostname)
     service = "ssh-mcp"
     
     try:
@@ -217,9 +228,9 @@ def test_credentials_available(hostname: str) -> bool:
         
         if result.returncode == 0:
             for line in result.stderr.split('\n'):
-                if 'acct' in line and hostname in line:
-                    # Handle username@hostname format
-                    if f'@{hostname}' in line:
+                if 'acct' in line and domain in line:
+                    # Handle username@domain format
+                    if f'@{domain}' in line:
                         parts = line.split('"')
                         if len(parts) >= 2:
                             account_match = parts[1]

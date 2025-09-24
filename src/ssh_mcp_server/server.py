@@ -25,6 +25,7 @@ def ssh_execute_ssh(hostname: str, command: str) -> Dict[str, Any]:
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
         # Check if we have cached credentials to get the correct username
+        domain = get_domain_from_hostname(hostname)
         cached_username = None
         try:
             service = "ssh-mcp"
@@ -35,11 +36,11 @@ def ssh_execute_ssh(hostname: str, command: str) -> Dict[str, Any]:
             
             if account_result.returncode == 0:
                 for line in account_result.stdout.split('\n'):
-                    if 'acct' in line and hostname in line:
+                    if 'acct' in line and domain in line:
                         parts = line.split('"')
                         if len(parts) >= 4:
                             account = parts[3]
-                            if '@' in account and hostname in account:
+                            if '@' in account and domain in account:
                                 cached_username = account.split('@')[0]
                                 break
         except:
@@ -144,25 +145,55 @@ def ssh_execute_sudo(hostname: str, command: str) -> Dict[str, Any]:
     """Execute command with sudo on remote Linux host"""
     
     try:
+        # Get domain and check for cached credentials
+        domain = get_domain_from_hostname(hostname)
+        cached_username = None
+        cached_password = None
+        
+        try:
+            service = "ssh-mcp"
+            account_result = subprocess.run([
+                'security', 'find-generic-password',
+                '-s', service
+            ], capture_output=True, text=True)
+            
+            if account_result.returncode == 0:
+                for line in account_result.stdout.split('\n'):
+                    if 'acct' in line and domain in line:
+                        parts = line.split('"')
+                        if len(parts) >= 4:
+                            account = parts[3]
+                            if '@' in account and domain in account:
+                                cached_username = account.split('@')[0]
+                                from .credentials import keychain_get_password
+                                cached_password = keychain_get_password(service, account)
+                                break
+        except:
+            pass
+        
+        # Use cached username if available, otherwise current user
+        ssh_username = cached_username if cached_username else get_username_suggestion()
+        
         # Create SSH client
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
         # First try key-based authentication
-        username = get_username_suggestion()
-        password = None
-        
         try:
             ssh.connect(
                 hostname=hostname,
-                username=username,
+                username=ssh_username,
                 timeout=SSH_TIMEOUT,
                 look_for_keys=True,
                 allow_agent=True
             )
         except paramiko.AuthenticationException:
-            # Key auth failed, get password credentials
-            username, password = get_credentials(hostname)
+            # Key auth failed, use password auth
+            if cached_password:
+                username, password = cached_username, cached_password
+            else:
+                username, password = get_credentials(hostname)
+            
             ssh.connect(
                 hostname=hostname,
                 username=username,
@@ -172,14 +203,16 @@ def ssh_execute_sudo(hostname: str, command: str) -> Dict[str, Any]:
                 allow_agent=False
             )
         
-        # For sudo, we need a password - get it if we don't have one
-        if password is None:
-            # We connected with keys, but need password for sudo
+        # For sudo, we need a password
+        if not cached_password:
+            # We connected with keys but need password for sudo
             username, password = get_credentials(hostname)
+            cached_password = password
         
-        # Execute sudo command with password input
-        sudo_command = f"echo '{password}' | sudo -S {command}"
-        stdin, stdout, stderr = ssh.exec_command(sudo_command)
+        # Execute sudo command with password via stdin
+        stdin, stdout, stderr = ssh.exec_command(f"sudo -S {command}")
+        stdin.write(f"{cached_password}\n")
+        stdin.flush()
         
         # Get results
         exit_status = stdout.channel.recv_exit_status()
@@ -195,7 +228,7 @@ def ssh_execute_sudo(hostname: str, command: str) -> Dict[str, Any]:
         ssh.close()
         
         # Clear password from memory
-        password = None
+        cached_password = None
         
         return {
             "status": exit_status,

@@ -18,6 +18,22 @@ Built-in MCP tools are limited to local operations. This server extends AI capab
 
 - **SSH Command Execution**: Execute arbitrary commands on remote Linux hosts
 - **Sudo Support**: Run commands with elevated privileges (secure password handling)
+
+## Installation
+
+### From PyPI (Recommended)
+
+```bash
+pip install ssh-mcp-server
+```
+
+### From Source
+
+```bash
+git clone https://github.com/rorymcmahon/ssh-mcp-server.git
+cd ssh-mcp-server
+pip install -e .
+```
 - **System Information**: Get system stats, processes, disk usage, and services
 - **Secure Credentials**: Secure credential storage (currently macOS Keychain, expanding to other providers)
 - **Connection Management**: Automatic connection handling with timeouts

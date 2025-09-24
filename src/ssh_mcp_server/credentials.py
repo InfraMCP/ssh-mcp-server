@@ -1,250 +1,279 @@
-"""Secure credential management for SSH MCP Server."""
+#!/usr/bin/env python3
+"""Secure credential management for SSH connections."""
 
-import os
-import platform
-import subprocess
 import getpass
-from typing import Optional, Tuple, Dict
-from abc import ABC, abstractmethod
+import os
+import subprocess
+import sys
+import time
+from typing import Optional, Tuple
 
 
-class CredentialProvider(ABC):
-    """Abstract base class for credential providers."""
-    
-    @abstractmethod
-    def get_credentials(self, domain: str) -> Optional[Tuple[str, str]]:
-        """Get username and password for a domain."""
-        pass
-    
-    @abstractmethod
-    def store_credentials(self, domain: str, username: str, password: str) -> bool:
-        """Store credentials securely."""
-        pass
-    
-    @abstractmethod
-    def test_credentials_available(self, domain: str) -> bool:
-        """Test if credentials are available for a domain."""
-        pass
+def get_username_suggestion() -> str:
+    """Get suggested username (current user)."""
+    return getpass.getuser()
 
 
-class MacOSKeychainProvider(CredentialProvider):
-    """macOS Keychain credential provider with TouchID protection."""
-    
-    def get_credentials(self, domain: str) -> Optional[Tuple[str, str]]:
-        """Get credentials from macOS Keychain (triggers TouchID)."""
-        try:
-            service = f"ssh-mcp-{domain}"
-            
-            # Get account name
-            cmd = ["security", "find-generic-password", "-s", service, "-w"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                return None
-            
-            username = result.stdout.strip()
-            
-            # Get password (triggers TouchID/password prompt)
-            cmd = ["security", "find-generic-password", "-s", service, "-a", username, "-w"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                return None
-                
-            password = result.stdout.strip()
-            return username, password
-            
-        except Exception:
-            return None
-    
-    def store_credentials(self, domain: str, username: str, password: str) -> bool:
-        """Store credentials in macOS Keychain."""
-        try:
-            service = f"ssh-mcp-{domain}"
-            
-            # Delete existing entry if it exists
-            subprocess.run(["security", "delete-generic-password", "-s", service], 
-                         capture_output=True)
-            
-            # Add new entry
-            cmd = [
-                "security", "add-generic-password",
-                "-s", service,
-                "-a", username,
-                "-w", password,
-                "-T", "",  # Allow all applications
-                "-U"       # Update if exists
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
-            
-        except Exception:
-            return False
-    
-    def test_credentials_available(self, domain: str) -> bool:
-        """Test if credentials are available."""
-        return self.get_credentials(domain) is not None
-
-
-class MemoryProvider(CredentialProvider):
-    """In-memory credential provider (session-only)."""
-    
-    def __init__(self):
-        self._credentials: Dict[str, Tuple[str, str]] = {}
-    
-    def get_credentials(self, domain: str) -> Optional[Tuple[str, str]]:
-        """Get credentials from memory."""
-        return self._credentials.get(domain)
-    
-    def store_credentials(self, domain: str, username: str, password: str) -> bool:
-        """Store credentials in memory."""
-        self._credentials[domain] = (username, password)
-        return True
-    
-    def test_credentials_available(self, domain: str) -> bool:
-        """Test if credentials are available."""
-        return domain in self._credentials
-
-
-class InteractiveProvider(CredentialProvider):
-    """Interactive prompt provider (fallback)."""
-    
-    def get_credentials(self, domain: str) -> Optional[Tuple[str, str]]:
-        """Prompt user for credentials."""
-        try:
-            print(f"SSH credentials required for domain: {domain}")
-            username = input("Username: ").strip()
-            if not username:
-                return None
-            
-            password = getpass.getpass("Password: ")
-            if not password:
-                return None
-                
-            return username, password
-            
-        except (KeyboardInterrupt, EOFError):
-            return None
-    
-    def store_credentials(self, domain: str, username: str, password: str) -> bool:
-        """Interactive provider doesn't store credentials."""
-        return False
-    
-    def test_credentials_available(self, domain: str) -> bool:
-        """Interactive provider always available as fallback."""
-        return True
-
-
-class CredentialManager:
-    """Manages multiple credential providers with security focus."""
-    
-    def __init__(self):
-        self.providers = []
-        self.memory_provider = MemoryProvider()
-        
-        # Add platform-specific secure providers
-        if platform.system() == "Darwin":  # macOS
-            self.providers.append(MacOSKeychainProvider())
-        
-        # Add memory provider for session caching
-        self.providers.append(self.memory_provider)
-        
-        # Interactive as last resort
-        self.providers.append(InteractiveProvider())
-    
-    def get_credentials(self, domain: str) -> Optional[Tuple[str, str]]:
-        """Get credentials from first available provider."""
-        for provider in self.providers:
-            try:
-                credentials = provider.get_credentials(domain)
-                if credentials:
-                    # Cache in memory for session
-                    if provider != self.memory_provider:
-                        self.memory_provider.store_credentials(domain, *credentials)
-                    return credentials
-            except Exception:
-                continue
+def keychain_get_password(service: str, account: str) -> Optional[str]:
+    """Get password from macOS Keychain."""
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", service, "-a", account, "-w"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
         return None
+
+
+def keychain_set_password(
+    service: str, account: str, password: str, ttl_hours: int = 4
+):
+    """Store password in macOS Keychain with TTL."""
+    # Delete existing entry if present
+    subprocess.run(
+        ["security", "delete-generic-password", "-s", service, "-a", account],
+        capture_output=True,
+    )
+
+    # Add new entry with comment containing expiration time
+    expiry_time = int(time.time()) + (ttl_hours * 3600)
+
+    subprocess.run(
+        [
+            "security",
+            "add-generic-password",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            password,
+            "-j",
+            f"expires:{expiry_time}",
+        ],
+        check=True,
+    )
+
+
+def keychain_check_expired(service: str, account: str) -> bool:
+    """Check if keychain entry is expired."""
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", service, "-a", account, "-j"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Parse comment for expiry time
+        comment = result.stdout.strip()
+        if comment.startswith("expires:"):
+            expiry_time = int(comment.split(":")[1])
+            return time.time() > expiry_time
+    except (subprocess.CalledProcessError, ValueError, IndexError):
+        pass
+
+    return True  # Assume expired if we can't determine
+
+
+def prompt_credentials_gui(hostname: str, suggested_username: str) -> Tuple[str, str]:
+    """Prompt for credentials using macOS GUI dialogs."""
+    username_script = f'''
+    display dialog "Enter username for SSH to {hostname}:" ¬
+    with title "SSH Authentication" ¬
+    with icon note ¬
+    default answer "{suggested_username}" ¬
+    buttons {{"Cancel", "OK"}} ¬
+    default button "OK"
+    '''
     
-    def store_credentials(self, domain: str, username: str, password: str) -> bool:
-        """Store credentials in the most secure available provider."""
-        # Try secure providers first
-        for provider in self.providers[:-2]:  # Exclude memory and interactive
-            try:
-                if provider.store_credentials(domain, username, password):
-                    # Also cache in memory
-                    self.memory_provider.store_credentials(domain, username, password)
-                    return True
-            except Exception:
-                continue
+    try:
+        result = subprocess.run(['osascript', '-e', username_script], 
+                              capture_output=True, text=True, check=True)
+        username = result.stdout.strip().split('text returned:')[1].strip()
         
-        # Fallback to memory only
-        return self.memory_provider.store_credentials(domain, username, password)
-    
-    def test_credentials_available(self, domain: str) -> bool:
-        """Test if credentials are available from any provider."""
-        for provider in self.providers:
-            try:
-                if provider.test_credentials_available(domain):
-                    return True
-            except Exception:
-                continue
-        return False
-    
-    @staticmethod
-    def get_domain_from_hostname(hostname: str) -> str:
-        """Extract domain from hostname."""
-        if '.' in hostname:
-            parts = hostname.split('.')
-            if len(parts) >= 2:
-                return '.'.join(parts[-2:])
-        return hostname
-    
-    def authenticate_domain(self, domain: str) -> bool:
-        """Interactive authentication for a domain."""
-        print(f"Authenticating for domain: {domain}")
-        
-        username = input("Username: ").strip()
         if not username:
-            return False
-        
-        password = getpass.getpass("Password: ")
-        if not password:
-            return False
-        
-        # Store in secure provider
-        success = self.store_credentials(domain, username, password)
-        
-        # Clear password from memory immediately
-        password = None
-        
-        if success:
-            print(f"Credentials stored securely for {domain}")
-        else:
-            print(f"Failed to store credentials for {domain}")
-        
-        return success
+            username = suggested_username
+            
+    except (subprocess.CalledProcessError, IndexError):
+        raise RuntimeError("Username input cancelled")
+    
+    # Prompt for password (hidden)
+    password_script = f'''
+    display dialog "Enter password for {username}@{hostname}:" ¬
+    with title "SSH Authentication" ¬
+    with icon note ¬
+    default answer "" ¬
+    with hidden answer ¬
+    buttons {{"Cancel", "OK"}} ¬
+    default button "OK"
+    '''
+    
+    try:
+        result = subprocess.run(['osascript', '-e', password_script], 
+                              capture_output=True, text=True, check=True)
+        password = result.stdout.strip().split('text returned:')[1].strip()
+    except (subprocess.CalledProcessError, IndexError):
+        raise RuntimeError("Password input cancelled")
+    
+    if not password:
+        raise RuntimeError("Password cannot be empty")
+    
+    return username, password
 
 
-# Global credential manager instance
-credential_manager = CredentialManager()
+def get_credentials(hostname: str) -> Tuple[str, str]:
+    """Get credentials for hostname with GUI prompting and caching."""
+    service = "ssh-mcp"
+    suggested_username = get_username_suggestion()
+    
+    # Check for cached credentials for this specific hostname
+    try:
+        # Get all accounts for this service
+        account_result = subprocess.run([
+            'security', 'find-generic-password',
+            '-s', service
+        ], capture_output=True, text=True)
+        
+        if account_result.returncode == 0:
+            for line in account_result.stdout.split('\n'):
+                if 'acct' in line and hostname in line:
+                    # Extract account name
+                    parts = line.split('"')
+                    if len(parts) >= 4:
+                        account = parts[3]
+                        
+                        # Account format: username@hostname
+                        if '@' in account and hostname in account:
+                            username = account.split('@')[0]
+                            # Get password for this specific account
+                            password = keychain_get_password(service, account)
+                            if password:
+                                return username, password
+    except subprocess.CalledProcessError:
+        pass
+    
+    # No cached credentials found, prompt using GUI
+    username, password = prompt_credentials_gui(hostname, suggested_username)
+    
+    # Store in keychain using username@hostname format
+    account = f"{username}@{hostname}"
+    try:
+        keychain_set_password(service, account, password)
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Could not cache credentials: {e}", file=sys.stderr)
+    
+    return username, password
+
+
+def clear_cached_credentials(hostname: str = None) -> bool:
+    """Clear all cached SSH credentials."""
+    service = "ssh-mcp"
+    cleared = False
+    
+    try:
+        # Get all accounts for this service
+        result = subprocess.run([
+            'security', 'find-generic-password',
+            '-s', service
+        ], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'acct' in line:
+                    # Extract account name - it's at index 3
+                    parts = line.split('"')
+                    if len(parts) >= 4:
+                        account = parts[3]  # Account is at index 3
+                        # Delete any account for this service
+                        try:
+                            subprocess.run([
+                                'security', 'delete-generic-password',
+                                '-s', service,
+                                '-a', account
+                            ], capture_output=True, check=True)
+                            cleared = True
+                        except subprocess.CalledProcessError:
+                            pass
+    except subprocess.CalledProcessError:
+        pass
+    
+    return cleared
+
+
+def test_credentials_available(hostname: str) -> bool:
+    """Test if valid credentials are available for hostname."""
+    service = "ssh-mcp"
+    
+    try:
+        result = subprocess.run([
+            'security', 'find-generic-password',
+            '-s', service,
+            '-g'
+        ], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            for line in result.stderr.split('\n'):
+                if 'acct' in line and hostname in line:
+                    # Handle username@hostname format
+                    if f'@{hostname}' in line:
+                        parts = line.split('"')
+                        if len(parts) >= 2:
+                            account_match = parts[1]
+                            if not keychain_check_expired(service, account_match):
+                                return True
+    except subprocess.CalledProcessError:
+        pass
+    
+    return False
+
+
+# Legacy compatibility functions for domain-based systems
+def get_domain_from_hostname(hostname: str) -> str:
+    """Extract domain from FQDN - for compatibility only."""
+    parts = hostname.split(".")
+    if len(parts) > 1:
+        return ".".join(parts[1:])
+    return f"{hostname}.local"
+
+
+def get_credential_manager():
+    """Legacy compatibility - returns a simple object with the new functions."""
+    class CredentialManager:
+        @staticmethod
+        def get_credentials(domain: str) -> Optional[Tuple[str, str]]:
+            # For legacy compatibility, treat domain as hostname
+            try:
+                return get_credentials(domain)
+            except RuntimeError:
+                return None
+        
+        @staticmethod
+        def get_domain_from_hostname(hostname: str) -> str:
+            return get_domain_from_hostname(hostname)
+        
+        @staticmethod
+        def test_credentials_available(domain: str) -> bool:
+            return test_credentials_available(domain)
+    
+    return CredentialManager()
 
 
 def authenticate_domain(hostname_or_domain: str) -> bool:
-    """Authenticate and store credentials for a domain."""
-    domain = credential_manager.get_domain_from_hostname(hostname_or_domain)
-    return credential_manager.authenticate_domain(domain)
+    """Authenticate and store credentials for a hostname."""
+    try:
+        get_credentials(hostname_or_domain)
+        return True
+    except RuntimeError:
+        return False
 
 
 def get_credentials_from_keychain(domain: str) -> Optional[Tuple[str, str]]:
     """Legacy function for backward compatibility."""
-    return credential_manager.get_credentials(domain)
-
-
-def test_credentials_available(hostname: str) -> bool:
-    """Legacy function for backward compatibility."""
-    domain = credential_manager.get_domain_from_hostname(hostname)
-    return credential_manager.test_credentials_available(domain)
-
-
-def get_domain_from_hostname(hostname: str) -> str:
-    """Legacy function for backward compatibility."""
-    return credential_manager.get_domain_from_hostname(hostname)
+    try:
+        return get_credentials(domain)
+    except RuntimeError:
+        return None

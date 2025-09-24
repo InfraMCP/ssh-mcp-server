@@ -12,8 +12,8 @@ Generated: 2025-09-24T19:12:17.819782
 
 ### paramiko v4.0.0
 - **Summary**: SSH2 protocol library
-- **License**: 
-- **Homepage**: 
+- **License**: LGPL-2.1 license 
+- **Homepage**: https://www.paramiko.org/ 
 - **Dependencies**: bcrypt, cryptography, invoke, pynacl
 
 ## Security Guidelines

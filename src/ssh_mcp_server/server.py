@@ -320,19 +320,18 @@ def ssh_setup_credentials(hostname: str) -> Dict[str, Any]:
                 ],
                 "suggested_action": "Ensure password is entered in the dialog"
             }
-        else:
-            return {
-                "error": "Credential setup failed",
-                "details": error_msg,
-                "troubleshooting": [
-                    "macOS Keychain access may be denied",
-                    "System security settings may block keychain access",
-                    "Hostname format may be invalid"
-                ],
-                "suggested_action": (
-                    f"Check hostname format: '{hostname}' should be a valid hostname or FQDN"
-                )
-            }
+        return {
+            "error": "Credential setup failed",
+            "details": error_msg,
+            "troubleshooting": [
+                "macOS Keychain access may be denied",
+                "System security settings may block keychain access",
+                "Hostname format may be invalid"
+            ],
+            "suggested_action": (
+                f"Check hostname format: '{hostname}' should be a valid hostname or FQDN"
+            )
+        }
 
 
 @mcp.tool()

@@ -2,7 +2,6 @@
 """Secure credential management for SSH connections."""
 
 import getpass
-import os
 import subprocess
 import sys
 import time
@@ -21,7 +20,7 @@ def keychain_get_password(service: str, account: str) -> Optional[str]:
             ["security", "find-generic-password", "-s", service, "-a", account, "-w"],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError:
@@ -36,6 +35,7 @@ def keychain_set_password(
     subprocess.run(
         ["security", "delete-generic-password", "-s", service, "-a", account],
         capture_output=True,
+        check=False,
     )
 
     # Add new entry with comment containing expiration time
@@ -54,7 +54,7 @@ def keychain_set_password(
             "-j",
             f"expires:{expiry_time}",
         ],
-        check=True,
+        check=False,
     )
 
 
@@ -65,7 +65,7 @@ def keychain_check_expired(service: str, account: str) -> bool:
             ["security", "find-generic-password", "-s", service, "-a", account, "-j"],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
 
         # Parse comment for expiry time
@@ -89,18 +89,18 @@ def prompt_credentials_gui(hostname: str, suggested_username: str) -> Tuple[str,
     buttons {{"Cancel", "OK"}} ¬
     default button "OK"
     '''
-    
+
     try:
-        result = subprocess.run(['osascript', '-e', username_script], 
+        result = subprocess.run(['osascript', '-e', username_script],
                               capture_output=True, text=True, check=True)
         username = result.stdout.strip().split('text returned:')[1].strip()
-        
+
         if not username:
             username = suggested_username
-            
-    except (subprocess.CalledProcessError, IndexError):
-        raise RuntimeError("Username input cancelled")
-    
+
+    except (subprocess.CalledProcessError, IndexError) as exc:
+        raise RuntimeError("Username input cancelled") from exc
+
     # Prompt for password (hidden)
     password_script = f'''
     display dialog "Enter password for {username}@{hostname}:" ¬
@@ -111,17 +111,17 @@ def prompt_credentials_gui(hostname: str, suggested_username: str) -> Tuple[str,
     buttons {{"Cancel", "OK"}} ¬
     default button "OK"
     '''
-    
+
     try:
-        result = subprocess.run(['osascript', '-e', password_script], 
+        result = subprocess.run(['osascript', '-e', password_script],
                               capture_output=True, text=True, check=True)
         password = result.stdout.strip().split('text returned:')[1].strip()
-    except (subprocess.CalledProcessError, IndexError):
-        raise RuntimeError("Password input cancelled")
-    
+    except (subprocess.CalledProcessError, IndexError) as exc:
+        raise RuntimeError("Password input cancelled") from exc
+
     if not password:
         raise RuntimeError("Password cannot be empty")
-    
+
     return username, password
 
 
@@ -139,15 +139,15 @@ def get_credentials(hostname: str) -> Tuple[str, str]:
     """Get credentials for hostname with GUI prompting and caching."""
     domain = get_domain_from_hostname(hostname)
     service = "ssh-mcp"
-    
+
     # Check for cached credentials for this domain
     try:
         # Get all accounts for this service
         account_result = subprocess.run([
             'security', 'find-generic-password',
             '-s', service
-        ], capture_output=True, text=True)
-        
+        ], capture_output=True, text=True, check=False)
+
         if account_result.returncode == 0:
             for line in account_result.stdout.split('\n'):
                 if 'acct' in line and domain in line:
@@ -155,7 +155,7 @@ def get_credentials(hostname: str) -> Tuple[str, str]:
                     parts = line.split('"')
                     if len(parts) >= 4:
                         account = parts[3]
-                        
+
                         # Account format: username@domain
                         if '@' in account and domain in account:
                             username = account.split('@')[0]
@@ -165,32 +165,32 @@ def get_credentials(hostname: str) -> Tuple[str, str]:
                                 return username, password
     except subprocess.CalledProcessError:
         pass
-    
+
     # No cached credentials found, prompt using GUI
     username, password = prompt_credentials_gui(hostname, get_username_suggestion())
-    
+
     # Store in keychain using username@domain format
     account = f"{username}@{domain}"
     try:
         keychain_set_password(service, account, password)
     except subprocess.CalledProcessError as e:
         print(f"Warning: Could not cache credentials: {e}", file=sys.stderr)
-    
+
     return username, password
 
 
-def clear_cached_credentials(hostname: str = None) -> bool:
+def clear_cached_credentials(_hostname: str = None) -> bool:
     """Clear all cached SSH credentials."""
     service = "ssh-mcp"
     cleared = False
-    
+
     try:
         # Get all accounts for this service
         result = subprocess.run([
             'security', 'find-generic-password',
             '-s', service
-        ], capture_output=True, text=True)
-        
+        ], capture_output=True, text=True, check=False)
+
         if result.returncode == 0:
             for line in result.stdout.split('\n'):
                 if 'acct' in line:
@@ -204,13 +204,13 @@ def clear_cached_credentials(hostname: str = None) -> bool:
                                 'security', 'delete-generic-password',
                                 '-s', service,
                                 '-a', account
-                            ], capture_output=True, check=True)
+                            ], capture_output=True, check=False)
                             cleared = True
                         except subprocess.CalledProcessError:
                             pass
     except subprocess.CalledProcessError:
         pass
-    
+
     return cleared
 
 
@@ -218,14 +218,14 @@ def test_credentials_available(hostname: str) -> bool:
     """Test if valid credentials are available for hostname."""
     domain = get_domain_from_hostname(hostname)
     service = "ssh-mcp"
-    
+
     try:
         result = subprocess.run([
             'security', 'find-generic-password',
             '-s', service,
             '-g'
-        ], capture_output=True, text=True)
-        
+        ], capture_output=True, text=True, check=False)
+
         if result.returncode == 0:
             for line in result.stderr.split('\n'):
                 if 'acct' in line and domain in line:
@@ -238,38 +238,34 @@ def test_credentials_available(hostname: str) -> bool:
                                 return True
     except subprocess.CalledProcessError:
         pass
-    
+
     return False
-
-
-# Legacy compatibility functions for domain-based systems
-def get_domain_from_hostname(hostname: str) -> str:
-    """Extract domain from FQDN - for compatibility only."""
-    parts = hostname.split(".")
-    if len(parts) > 1:
-        return ".".join(parts[1:])
-    return f"{hostname}.local"
 
 
 def get_credential_manager():
     """Legacy compatibility - returns a simple object with the new functions."""
     class CredentialManager:
+        """Legacy credential manager for backward compatibility."""
+
         @staticmethod
         def get_credentials(domain: str) -> Optional[Tuple[str, str]]:
+            """Get credentials for a domain."""
             # For legacy compatibility, treat domain as hostname
             try:
                 return get_credentials(domain)
             except RuntimeError:
                 return None
-        
+
         @staticmethod
         def get_domain_from_hostname(hostname: str) -> str:
+            """Extract domain from hostname."""
             return get_domain_from_hostname(hostname)
-        
+
         @staticmethod
         def test_credentials_available(domain: str) -> bool:
+            """Test if credentials are available for domain."""
             return test_credentials_available(domain)
-    
+
     return CredentialManager()
 
 

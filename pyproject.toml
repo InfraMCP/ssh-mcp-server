@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ssh-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server providing SSH client functionality for remote Linux server management"
 authors = [{name = "Rory McMahon", email = "rory.mcmahon@vocus.com.au"}]
 license = {text = "MIT"}

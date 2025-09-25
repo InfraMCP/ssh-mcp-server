@@ -226,12 +226,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Issues**: [GitHub Issues](https://github.com/rorymcmahon/ssh-mcp-server/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/rorymcmahon/ssh-mcp-server/discussions)
-
-## Changelog
-
-### v0.1.0 (Initial Release)
-- Basic SSH command execution with secure credential management
-- macOS Keychain credential support
-- System information and administration tools
-- Puppet integration for configuration management
-- Comprehensive test suite and documentation
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)

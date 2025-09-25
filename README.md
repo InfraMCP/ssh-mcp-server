@@ -1,7 +1,10 @@
 # SSH MCP Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Pylint](https://github.com/rorymcmahon/ssh-mcp-server/actions/workflows/pylint.yml/badge.svg)](https://github.com/rorymcmahon/ssh-mcp-server/actions/workflows/pylint.yml)
+[![Safety Security Scan](https://github.com/rorymcmahon/ssh-mcp-server/actions/workflows/safety-scan.yml/badge.svg)](https://github.com/rorymcmahon/ssh-mcp-server/actions/workflows/safety-scan.yml)
+[![Dependency Security Check](https://github.com/rorymcmahon/ssh-mcp-server/actions/workflows/dependency-security.yml/badge.svg)](https://github.com/rorymcmahon/ssh-mcp-server/actions/workflows/dependency-security.yml)
 
 An MCP (Model Context Protocol) server that provides SSH client functionality for remote Linux server management. This server enables AI assistants to execute commands on remote Linux hosts via SSH, solving the limitations of built-in tools when working with remote systems.
 

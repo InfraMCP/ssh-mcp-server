@@ -81,35 +81,6 @@ Add to your MCP client configuration (e.g., Claude Desktop, Q CLI):
 }
 ```
 
-### Credential Management
-
-The server uses secure credential storage with multiple provider support:
-
-#### Secure Storage Providers
-- **macOS Keychain**: TouchID/password protected storage (macOS only)
-- **Memory Cache**: Session-only credential caching
-- **Interactive Prompt**: Fallback for manual entry
-
-#### Authentication Setup
-```bash
-# Add domain credentials securely
-ssh-mcp-auth add domain.local
-ssh-mcp-auth add company.com
-
-# Test if credentials are available
-ssh-mcp-auth test domain.local
-
-# List available providers
-ssh-mcp-auth list
-```
-
-#### Security Features
-- **TouchID Protection**: macOS Keychain integration requires TouchID/password
-- **Memory Safety**: Passwords cleared immediately after use
-- **No Plain Text**: Never stored in logs or configuration files
-- **Session Caching**: Credentials cached in memory during session only
-- **Secure Transmission**: Sudo passwords sent via stdin (not visible in process lists)
-
 ## Available Tools
 
 ### Core SSH Operations

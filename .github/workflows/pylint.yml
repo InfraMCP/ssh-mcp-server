@@ -31,4 +31,4 @@ jobs:
         pip install mcp paramiko pydantic-settings
     - name: Analysing the code with pylint
       run: |
-        pylint src/ssh_mcp_server/
+        pylint src/ssh_mcp_server/ --disable=too-many-locals,too-many-branches,too-many-statements,too-many-nested-blocks

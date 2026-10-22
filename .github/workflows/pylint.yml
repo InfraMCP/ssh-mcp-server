@@ -17,7 +17,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  build:
+  pylint:
     runs-on: ubuntu-latest
     strategy:
       matrix:

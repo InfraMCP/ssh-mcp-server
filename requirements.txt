@@ -1,2 +1,2 @@
-mcp==1.14.1
-paramiko==4.0.0
+mcp==1.30.0
+paramiko==5.1.0
